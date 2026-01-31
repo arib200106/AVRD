@@ -1,69 +1,41 @@
-// MainComponent.h - COMPLETE WORKING VERSION
 #pragma once
 #include <JuceHeader.h>
-#include "MainMenuBar.h"
-#include "TransportComponent.h"
-#include "PlaylistComponent.h"
-#include "TimelineComponent.h"
-#include "DragAndDropComponent.h"
-
-namespace te = tracktion::engine;
+#include "Colors.h"
+#include "TransportPanel.h"
+#include "BrowserPanel.h"
+#include "PlaylistPanel.h"
 
 class MainComponent : public juce::Component
 {
 public:
-    MainComponent(te::Engine& eng, te::Edit& ed)
-        : engine(eng)
-        , edit(ed)
-        , menuBarComponent(ed, eng)
-        , timelineComponent(ed)
-        , transportComponent(ed, timelineComponent)
-        , playlistComponent(ed)
-        , dragDropComponent(ed, eng)
+    MainComponent()
     {
-        addAndMakeVisible(menuBarComponent);
-        addAndMakeVisible(transportComponent);
-        addAndMakeVisible(playlistComponent);
-        addAndMakeVisible(timelineComponent);
-        addAndMakeVisible(dragDropComponent);
-        
-        menuBarComponent.onAudioImported = [this]() {
-            playlistComponent.refreshTrackList();
-        };
-        
-        dragDropComponent.setOnTrackAdded([this]() {
-            playlistComponent.refreshTrackList();
-        });
+        addAndMakeVisible(transportPanel);
+        addAndMakeVisible(browserPanel);
+        addAndMakeVisible(playlistPanel);
+        setSize(1200, 800);
     }
-    
-    void resized() override
-    {
-        auto area = getLocalBounds();
-        
-        menuBarComponent.setBounds(area.removeFromTop(30));
-        transportComponent.setBounds(area.removeFromTop(60));
-        
-        auto leftPanel = area.removeFromLeft(250);
-        playlistComponent.setBounds(leftPanel);
-        
-        timelineComponent.setBounds(area);
-        dragDropComponent.setBounds(area);
-    }
-    
+
     void paint(juce::Graphics& g) override
     {
-        g.fillAll(juce::Colour(0xff1e1e1e));
+        g.fillAll(AVRDColors::background);
+        g.setColour(AVRDColors::accent);
+        g.drawRect(getLocalBounds(), 2);
     }
-    
+
+    void resized() override {
+        auto area = getLocalBounds();
+        area.reduce(5, 5);
+        transportPanel.setBounds(area.removeFromTop(60));
+        area.removeFromTop(5);
+        browserPanel.setBounds(area.removeFromLeft(250));
+        area.removeFromLeft(5);
+        playlistPanel.setBounds(area);
+    }
+
 private:
-    te::Engine& engine;
-    te::Edit& edit;
-    
-    MainMenuBar menuBarComponent;
-    TimelineComponent timelineComponent;
-    TransportComponent transportComponent;
-    PlaylistComponent playlistComponent;
-    DragAndDropComponent dragDropComponent;
-    
+    TransportPanel transportPanel;
+    PlaylistPanel playlistPanel;
+    BrowserPanel browserPanel;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

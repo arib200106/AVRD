@@ -5,22 +5,14 @@
 class MainWindow : public juce::DocumentWindow
 {
 public:
-    MainWindow(
-        juce::String name,
-        tracktion_engine::Engine& engine,
-        tracktion_engine::Edit& edit
-    )
-        : DocumentWindow(
-            name,
-            juce::Colours::black,
-            juce::DocumentWindow::allButtons
-        )
+    MainWindow(juce::String name)
+        : DocumentWindow(name,
+                         juce::Colours::black,
+                         DocumentWindow::allButtons)
     {
         setUsingNativeTitleBar(true);
         setResizable(true, true);
-
-        setContentOwned(new MainComponent(engine, edit), true);
-
+        setContentOwned(new MainComponent(), true);
         centreWithSize(1200, 800);
         setVisible(true);
     }
