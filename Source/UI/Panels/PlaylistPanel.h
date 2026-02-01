@@ -1,20 +1,47 @@
 #pragma once
 #include <JuceHeader.h>
 #include "TrackLane.h"
-#include "TimelineHeader.h" // Make sure you created this file!
+#include "TimelineHeader.h"
+#include "Playhead.h"
 
-class PlaylistPanel : public juce::Component, 
-                      public juce::Timer // Added for Playhead movement
+struct RectangularScrollBarLF : public juce::LookAndFeel_V4
+{
+    void drawScrollbar (juce::Graphics& g, juce::ScrollBar& sb,
+                        int x, int y, int width, int height,
+                        bool isVertical, int thumbPosition, int thumbSize,
+                        bool isMouseOver, bool isButtonDown) override
+    {
+        g.setColour(juce::Colours::black.withAlpha(0.2f));
+        g.fillRect(x, y, width, height);
+
+        g.setColour(juce::Colours::grey.withAlpha(0.8f));
+        if (isVertical)
+            g.fillRect(x + 2, thumbPosition, width - 4, thumbSize);
+        else
+            // Fill full height of the bar to meet the playhead
+            g.fillRect(thumbPosition, y, thumbSize, height); 
+    }
+
+    void drawScrollbarButton (juce::Graphics& g, juce::ScrollBar& sb,
+                              int width, int height, int direction,
+                              bool isMouseOver, bool isButtonDown)
+    {
+    }
+};
+
+class PlaylistPanel : public juce::Component, public juce::Timer 
 {
 public:
     PlaylistPanel() 
     {
-        // 1. Setup UI Hierarchy
         addAndMakeVisible(timelineHeader);
         addAndMakeVisible(viewport);
+        addAndMakeVisible(playhead); 
+        
+        viewport.getHorizontalScrollBar().setLookAndFeel(&customLF);
+        viewport.getVerticalScrollBar().setLookAndFeel(&customLF);
         viewport.setInterceptsMouseClicks(false, true);
         
-        // 2. Create 50 tracks
         for (int i = 0; i < 50; ++i) {
             auto* lane = new TrackLane(i);
             playlistContent.addAndMakeVisible(lane);
@@ -22,35 +49,92 @@ public:
         }
 
         viewport.setViewedComponent(&playlistContent, false);
-        setWantsKeyboardFocus(true);
         
-        // 3. Start the Playhead "Engine" (60 frames per second)
+        // Ensure the component can receive key presses
+        setWantsKeyboardFocus(true);
         startTimerHz(60);
     }
 
-    // This runs 60 times a second to move the white line
+    ~PlaylistPanel()
+    {
+        viewport.getHorizontalScrollBar().setLookAndFeel(nullptr);
+        viewport.getVerticalScrollBar().setLookAndFeel(nullptr);
+    }
+
+    // --- Play/Stop Logic ---
+    void togglePlay() { isPlaying = !isPlaying; }
+    
+    void stop() { 
+        isPlaying = false; 
+        playheadPos = 140.0f; 
+    }
+
+    bool keyPressed(const juce::KeyPress& key) override
+    {
+        if (key.getKeyCode() == juce::KeyPress::spaceKey)
+        {
+            togglePlay();
+            return true;
+        }
+        return false;
+    }
+
+    void mouseDown(const juce::MouseEvent& event) override
+    {
+        grabKeyboardFocus(); // Regain focus so Spacebar works after clicking
+    }
+
     void timerCallback() override
     {
-        playheadPos += 0.5f;
-        if (playheadPos > 3000) playheadPos = 140.0f;
-        timelineHeader.setScrollOffset(viewport.getViewPosition().getX());
-        repaint();
+        if (isPlaying) 
+        {
+            float barWidth = 160.0f * zoomX;
+            float loopEnd = 140.0f + (barWidth * 4.0f);
+
+            playheadPos += (1.5f * zoomX);
+            
+            if (playheadPos >= loopEnd) 
+                playheadPos = 140.0f; 
+        }
+
+        int scrollX = viewport.getViewPosition().getX();
+        timelineHeader.setScrollOffset(scrollX);
+        
+        // Pass the viewport height so playhead knows where to stop
+        playhead.updatePosition(playheadPos, scrollX, viewport.getHeight());
+    }
+
+    void mouseWheelMove(const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel) override
+    {
+        if (event.mods.isCtrlDown()) 
+        {
+            float dynamicMinX = (float)viewport.getWidth() / 2000.0f;
+            zoomX = juce::jlimit(dynamicMinX, 5.0f, zoomX + (wheel.deltaY * 0.1f));
+            resized();
+        }
+        else if (event.mods.isAltDown()) 
+        {
+            float baseHeight = lanes.size() * 60.0f;
+            float dynamicMinY = (float)viewport.getHeight() / baseHeight;
+            zoomY = juce::jlimit(dynamicMinY, 5.0f, zoomY + (wheel.deltaY * 0.1f));
+            resized();
+        }
+        else
+        {
+            viewport.mouseWheelMove(event, wheel);
+        }
     }
 
     void resized() override 
     {
         auto area = getLocalBounds();
-        
-        // Position Timeline at top
-        timelineHeader.setBounds(area.removeFromTop(30)); 
+        playhead.setBounds(area); 
 
-        // Viewport takes rest
+        timelineHeader.setBounds(area.removeFromTop(30)); 
         viewport.setBounds(area);
 
         int baseLaneHeight = 60;
         int currentLaneHeight = static_cast<int>(baseLaneHeight * zoomY);
-        
-        // Extra 40px height so Track 50 isn't hidden by scrollbar
         int totalHeight = (lanes.size() * currentLaneHeight) + 40; 
         int currentWidth = static_cast<int>(2000 * zoomX);
 
@@ -60,54 +144,24 @@ public:
             lanes[i]->setBounds(0, i * currentLaneHeight, currentWidth, currentLaneHeight);
             lanes[i]->setZoom(zoomX);
         }
-        
         timelineHeader.setZoom(zoomX);
     }
 
-    void paint(juce::Graphics& g) override
-    {
-        g.fillAll(juce::Colours::black);
-        g.setColour(juce::Colours::yellow);
-        float viewX = playheadPos - viewport.getViewPosition().getX();
-        if (viewX > 140.0f){
-            g.drawLine(viewX, 30.0f, viewX, (float)getHeight(), 2.0f); // 2.0f thickness
-            juce::Path p;
-            p.addTriangle(viewX - 8, 30, viewX + 8, 30, viewX, 45);
-            g.fillPath(p);
-        }
-    }
-    
-    void paintOverChildren(juce::Graphics& g) override
-    {
-        // 1. Calculate relative position
-        float viewX = playheadPos - viewport.getViewPosition().getX();
-        
-        // 2. Only draw if it's in the 'Arrangement' area (past 140px header)
-        if (viewX > 140.0f && viewX < getWidth()) 
-        {
-            // Bright Yellow, thicker line
-            g.setColour(juce::Colours::yellow);
-            g.drawLine(viewX, 0.0f, viewX, (float)getHeight(), 2.5f); 
-
-            // Larger Triangle at the top (on the timeline)
-            juce::Path p;
-            p.addTriangle(viewX - 10, 0, viewX + 10, 0, viewX, 15);
-            g.fillPath(p);
-        }
-    }
+    void paint(juce::Graphics& g) override { g.fillAll(juce::Colours::black); }
 
 private:
-
     juce::Viewport viewport;
-    juce::Component playlistContent; // The 'Canvas'
+    juce::Component playlistContent; 
     juce::OwnedArray<TrackLane> lanes;
     TimelineHeader timelineHeader;
+    Playhead playhead;
     
+    RectangularScrollBarLF customLF;
+
     float zoomX = 1.0f;
     float zoomY = 1.0f;
     float playheadPos = 140.0f;
-    float minZoom = 0.2f;
-    float maxZoom = 5.0f;
-
+    bool isPlaying = false; // Initial state
+    
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PlaylistPanel)
 };
